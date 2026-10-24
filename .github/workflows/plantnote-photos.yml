@@ -1,6 +1,6 @@
 name: 식물노트 사진 받기
 
-# 사진은 lee의 컴퓨터에서 받아요. 이 작업은 필요할 때 손으로만 돌려요
+# 사진은 lee의 컴퓨터에서 받아요. 컴퓨터가 멈췄을 때만 손으로 돌려요
 on:
   workflow_dispatch:
 
@@ -24,6 +24,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: 도구 설치
+        run: npm ci --prefix plantnote/tools
       - name: iNaturalist에서 사진 받기
         id: fetch
         run: node plantnote/tools/fetch-photos.mjs
