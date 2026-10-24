@@ -42,6 +42,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .wrap { max-width: 560px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 calc(96px + env(safe-area-inset-bottom, 0px)); }
 header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 18px 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 h1 { font-family: var(--font-display); font-size: 1.6rem; margin: 0; text-wrap: balance; }
+h1 .count { font-size: 1rem; font-weight: 600; color: var(--muted, #6b7a6f); margin-left: .3em; font-variant-numeric: tabular-nums; }
 h2 { font-family: var(--font-display); font-size: 1.2rem; margin: 0; }
 .today { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
 button { font: inherit; cursor: pointer; }
@@ -4184,7 +4185,7 @@ function toast(msg, ms = 2600) {
 function setTab(t) { tab = t; render(); window.scrollTo(0, 0); }
 function render() {
   document.querySelectorAll("nav.tabs button").forEach(b => b.dataset.tab === tab ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
-  $("#title").textContent = { home: "내 식물", find: "식물 찾기", wish: "위시리스트", settings: "알림 설정" }[tab];
+  $("#title").innerHTML = { home: `내 식물 <span class="count">${state.mine.length}</span>`, find: "식물 찾기", wish: "위시리스트", settings: "알림 설정" }[tab];
   $("#today").textContent = fmt(todayStr());
   ({ home: renderHome, find: renderFind, wish: renderWish, settings: renderSettings })[tab]();
 }
