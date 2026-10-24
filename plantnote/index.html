@@ -2289,11 +2289,19 @@ async function photoURL(key) {
 }
 
 // ── 기본 사진 (iNaturalist에서 학명으로 자동으로 불러와요) ──
-// 전체 모습 2장, 꽃 2장, 잎 2장. 꽃이 피지 않는 식물(양치·침엽수·이끼 등)은 꽃 사진을 넣지 않아요.
+// 전체 모습 2장, 꽃 2장(열매 식물은 꽃 1장 + 열매 1장), 잎 2장. 꽃이 피지 않는 식물(양치·침엽수·이끼 등)은 꽃 사진을 넣지 않아요.
 // Claude 미리보기 링크에서는 다른 사이트 접속이 막혀 있어서, 앱을 인터넷 주소에 올렸을 때만 보여요.
 const NO_FLOWER = new Set(["boston","adiantum","platycerium","marimo","cycas","sprouts","araucaria","goldcrest","blueice","juniper","pine","cf_bansong","cf_taxus","cf_emerald","cf_blueangel","buxus","asparagus","muehlenbeckia","eu_polyan","eu_gunnii","eu_blackjack","eu_silverdrop","eu_lemon","eucalyptus"]);
-const hasFlower = p => !NO_FLOWER.has(p.id);
-const AUTO_KEY = "plant-auto-photos-v1";
+const NO_FLOWER_GENUS = new Set(["Nephrolepis", "Adiantum", "Platycerium", "Asplenium", "Davallia", "Humata", "Pteris", "Phlebodium", "Microsorum", "Blechnum", "Lygodium", "Cyrtomium", "Polystichum", "Dryopteris", "Athyrium", "Matteuccia", "Osmunda", "Sphaeropteris", "Selaginella", "Aegagropila", "Cycas", "Zamia", "Encephalartos", "Welwitschia", "Ginkgo", "Metasequoia", "Cedrus", "Sciadopitys", "Taxodium", "Larix", "Pinus", "Abies", "Picea", "Araucaria", "Juniperus", "Thuja", "Cupressus", "Chamaecyparis", "Taxus", "Cephalotaxus"]);
+const genusOf = p => (p.sci || "").replace(/^×\s*/, "").split(/\s/)[0];
+const hasFlower = p => !NO_FLOWER.has(p.id) && !NO_FLOWER_GENUS.has(genusOf(p));
+// 열매가 보기 좋은 식물은 꽃 사진 2장 대신 꽃 1장 + 열매 1장
+const FRUIT_GENUS = new Set(["Citrus", "Olea", "Vaccinium", "Fragaria", "Solanum", "Capsicum", "Cucumis", "Prunus", "Malus", "Pyrus", "Punica", "Ardisia", "Pyracantha", "Ilex", "Nandina", "Callicarpa", "Sorbus", "Crataegus", "Coffea", "Musa", "Musella", "Passiflora", "Persea", "Diospyros", "Ziziphus", "Eriobotrya", "Actinidia", "Vitis", "Acca", "Psidium", "Mangifera", "Pseudocydonia", "Chaenomeles", "Cornus", "Viburnum", "Berberis", "Lindera", "Euonymus", "Ligustrum", "Photinia", "Murraya", "Gardenia", "Rosa", "Rhaphiolepis", "Aesculus", "Koelreuteria", "Styrax", "Firmiana"]);
+const hasFruit = p => hasFlower(p) && (p.cat === "fruit" || FRUIT_GENUS.has(genusOf(p)) && genusOf(p) !== "Ficus" || /^Ficus carica/.test(p.sci || ""));
+// 사진 칸 [종류, 순서]: 열매 식물은 꽃 칸 두 번째 줄이 열매예요
+const cellOf = (p, k, i) => k === "flower" && i === 1 && hasFruit(p) ? ["fruit", 0] : [k, i];
+const slotLabel = (p, k) => k === "flower" && hasFruit(p) ? "꽃·열매" : PHOTO_SLOTS.find(s => s[0] === k)[1];
+const AUTO_KEY = "plant-auto-photos-v2";
 const AUTO_TTL = 14 * DAY;
 let autoCache = {};
 try { autoCache = JSON.parse(localStorage.getItem(AUTO_KEY)) || {}; } catch (e) {}
@@ -2322,18 +2330,20 @@ async function obsPhotos(taxonId, extra) {
 }
 async function fetchAuto(p) {
   const name = searchName(p);
-  if (!name || /[가-힣]/.test(name)) return { whole: [], flower: [], leaf: [] };
+  if (!name || /[가-힣]/.test(name)) return { whole: [], flower: [], fruit: [], leaf: [] };
   const found = await getJSON(`https://api.inaturalist.org/v1/taxa?q=${encodeURIComponent(name)}&per_page=1`);
   const t = found.results?.[0];
-  if (!t) return { whole: [], flower: [], leaf: [] };
+  if (!t) return { whole: [], flower: [], fruit: [], leaf: [] };
   const detail = await getJSON(`https://api.inaturalist.org/v1/taxa/${t.id}`);
   const tp = (detail.results?.[0]?.taxon_photos || []).map(x => medium(x.photo?.medium_url || x.photo?.url)).filter(Boolean);
   const whole = (tp.length ? tp : [medium(t.default_photo?.medium_url)]).filter(Boolean).slice(0, 2);
   // 꽃: 개화 중(Plant Phenology = Flowering), 잎: 초록 잎(Leaves = Green Leaves)으로 표시된 관찰 사진
   const flower = hasFlower(p) ? (await obsPhotos(t.id, "&term_id=12&term_value_id=13").catch(() => [])).filter(u => !whole.includes(u)).slice(0, 2) : [];
-  let leaf = (await obsPhotos(t.id, "&term_id=36&term_value_id=38").catch(() => [])).filter(u => !whole.includes(u) && !flower.includes(u)).slice(0, 2);
+  // 열매: Plant Phenology = Fruiting
+  const fruit = hasFruit(p) ? (await obsPhotos(t.id, "&term_id=12&term_value_id=14").catch(() => [])).filter(u => !whole.includes(u) && !flower.includes(u)).slice(0, 1) : [];
+  let leaf = (await obsPhotos(t.id, "&term_id=36&term_value_id=38").catch(() => [])).filter(u => !whole.includes(u) && !flower.includes(u) && !fruit.includes(u)).slice(0, 2);
   if (leaf.length < 2) leaf = leaf.concat(tp.slice(2).filter(u => !leaf.includes(u))).slice(0, 2);
-  return { whole, flower, leaf, taxon: t.name };
+  return { whole, flower, fruit, leaf, taxon: t.name };
 }
 // GitHub에 올린 버전은 photos/ 폴더에 미리 받아둔 사진을 먼저 써요 (GitHub Actions가 채워요)
 let bundled = null;
@@ -2341,7 +2351,7 @@ const bundledReady = fetch("photos/index.json").then(r => r.ok ? r.json() : null
 async function autoPhotos(p) {
   await bundledReady;
   const b = bundled?.plants?.[p.id];
-  if (b) { const fix = a => (a || []).map(f => "photos/" + f); return { whole: fix(b.whole), flower: fix(b.flower), leaf: fix(b.leaf), taxon: b.taxon }; }
+  if (b) { const fix = a => (a || []).map(f => "photos/" + f); return { whole: fix(b.whole), flower: fix(b.flower), fruit: fix(b.fruit), leaf: fix(b.leaf), taxon: b.taxon }; }
   return remotePhotos(p);
 }
 function remotePhotos(p) {
@@ -2369,7 +2379,9 @@ async function loadAuto(img) {
   const p = BY_ID[img.dataset.auto];
   if (!p) return;
   const r = await autoPhotos(p);
-  const url = r?.[img.dataset.kind || "whole"]?.[+(img.dataset.idx || 0)];
+  const kind = img.dataset.kind || "whole";
+  // 열매 사진을 못 찾으면 두 번째 꽃 사진으로 채워요
+  const url = r?.[kind]?.[+(img.dataset.idx || 0)] || (kind === "fruit" ? r?.flower?.[1] : null);
   if (url) { img.src = url; img.hidden = false; img.closest(".auto-cell")?.classList.add("has"); }
   else {
     img.closest(".auto-cell")?.classList.add("none");
@@ -2395,8 +2407,8 @@ const thumbFor = (p, own) => own ? `<img class="thumb" data-photo="${own}" hidde
 function autoGallery(p) {
   const kinds = PHOTO_SLOTS.filter(([k]) => k !== "flower" || hasFlower(p));
   return `<div class="auto-gallery" style="grid-template-columns: repeat(${kinds.length}, minmax(0, 1fr))">
-    ${kinds.map(([, l]) => `<span class="k">${l}</span>`).join("")}
-    ${[0, 1].map(i => kinds.map(([k]) => `<div class="auto-cell">${autoImg(p.id, k, i)}</div>`).join("")).join("")}
+    ${kinds.map(([k]) => `<span class="k">${slotLabel(p, k)}</span>`).join("")}
+    ${[0, 1].map(i => kinds.map(([k]) => `<div class="auto-cell">${autoImg(p.id, ...cellOf(p, k, i))}</div>`).join("")).join("")}
   </div><p class="credit" id="auto-credit">사진: iNaturalist 관찰 기록 (${esc(searchName(p))})</p>`;
 }
 
@@ -2443,23 +2455,24 @@ function pickFile(multiple) {
   });
 }
 const PHOTO_SLOTS = [["whole", "전체"], ["flower", "꽃"], ["leaf", "잎"]];
-const coverPhoto = m => { for (const [k] of PHOTO_SLOTS) for (const key of (m.photos?.[k] || [])) if (key) return key; return null; };
+const coverPhoto = m => { for (const k of ["whole", "flower", "fruit", "leaf"]) for (const key of (m.photos?.[k] || [])) if (key) return key; return null; };
 
 function openMine(uid) {
   const m = state.mine.find(x => x.uid === uid);
   const p = BY_ID[m.plantId];
   m.photos = m.photos || { whole: [null, null], flower: [null, null], leaf: [null, null] };
+  m.photos.fruit = m.photos.fruit || [null];
   m.journal = m.journal || [];
   const shown = { ...p, care: m.careNote != null ? esc(m.careNote) : p.care };
   const slots = PHOTO_SLOTS.filter(([k]) => k !== "flower" || hasFlower(p) || m.photos.flower.some(Boolean));
   const journal = [...m.journal].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
   sheet(`<h2>${esc(m.nick || p.name)}</h2><div class="sci">${p.name}${p.sci ? " · " + p.sci : ""}</div>
     <div class="photo-grid" style="grid-template-columns: repeat(${slots.length}, minmax(0, 1fr))">
-      ${slots.map(([, l]) => `<span class="k">${l}</span>`).join("")}
-      ${[0, 1].map(i => slots.map(([k, l]) => `<div class="slot auto-cell" data-slot="${k}" data-i="${i}">
-          <button class="slot-btn" aria-label="${l} 사진 ${i + 1} ${m.photos[k][i] ? "바꾸기" : "올리기"}">${m.photos[k][i] ? `<img data-photo="${m.photos[k][i]}" hidden alt="">` : `${autoImg(p.id, k, i)}<span class="slot-label">+ ${l}</span>`}</button>
-          ${m.photos[k][i] ? `<button class="slot-x" aria-label="사진 지우기">✕</button>` : ""}
-        </div>`).join("")).join("")}
+      ${slots.map(([k]) => `<span class="k">${slotLabel(p, k)}</span>`).join("")}
+      ${[0, 1].map(i => slots.map(([k0, l0]) => { const [k, j] = cellOf(p, k0, i), l = k === "fruit" ? "열매" : l0, own = m.photos[k][j]; return `<div class="slot auto-cell" data-slot="${k}" data-i="${j}">
+          <button class="slot-btn" aria-label="${l} 사진 ${j + 1} ${own ? "바꾸기" : "올리기"}">${own ? `<img data-photo="${own}" hidden alt="">` : `${autoImg(p.id, k, j)}<span class="slot-label">+ ${l}</span>`}</button>
+          ${own ? `<button class="slot-x" aria-label="사진 지우기">✕</button>` : ""}
+        </div>`; }).join("")).join("")}
     </div>
     ${facts(shown)}
     <div class="field"><label for="m-nick">이름</label><input id="m-nick" maxlength="20" value="${esc(m.nick)}" placeholder="${p.name}"></div>

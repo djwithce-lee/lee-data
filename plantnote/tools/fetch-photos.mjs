@@ -1,4 +1,4 @@
-// 식물노트 사진 받기: index.html의 식물 목록을 읽어 iNaturalist에서 전체·꽃·잎 사진을 받아
+// 식물노트 사진 받기: index.html의 식물 목록을 읽어 iNaturalist에서 전체·꽃(열매 식물은 꽃+열매)·잎 사진을 받아
 // photos/<분류번호>/ 에 저장하고 photos/index.json 을 만들어요. GitHub Actions에서 실행해요.
 // 크리에이티브 커먼즈(CC) 라이선스 사진만 받아요.
 import fs from "node:fs/promises";
@@ -15,7 +15,13 @@ const html = await fs.readFile(path.join(ROOT, "index.html"), "utf8");
 const start = html.indexOf("const PLANTS = [");
 const end = html.indexOf("];\nconst CAT_OF");
 const PLANTS = Function(`return ${html.slice(start + "const PLANTS = ".length, end)}]`)();
-const NO_FLOWER = new Set(JSON.parse(html.match(/const NO_FLOWER = new Set\((\[[^\]]*\])\)/)[1]));
+const setFrom = name => new Set(JSON.parse(html.match(new RegExp(`const ${name} = new Set\\((\\[[^\\]]*\\])\\)`))[1]));
+const NO_FLOWER = setFrom("NO_FLOWER"), NO_FLOWER_GENUS = setFrom("NO_FLOWER_GENUS"), FRUIT_GENUS = setFrom("FRUIT_GENUS");
+// 앱의 hasFlower·hasFruit 와 같은 규칙
+const genusOf = p => (p.sci || "").replace(/^×\s*/, "").split(/\s/)[0];
+const hasFlower = p => !NO_FLOWER.has(p.id) && !NO_FLOWER_GENUS.has(genusOf(p));
+const hasFruit = p => hasFlower(p) && (p.cat === "fruit" || FRUIT_GENUS.has(genusOf(p)) && genusOf(p) !== "Ficus" || /^Ficus carica/.test(p.sci || ""));
+const mode = p => !hasFlower(p) ? "nf" : hasFruit(p) ? "fr" : "f";
 
 // 앱과 같은 방식으로 학명에서 종 이름만 뽑아요
 function searchName(p) {
@@ -43,7 +49,7 @@ async function download(url, file) {
   await fs.writeFile(file, Buffer.from(await r.arrayBuffer()));
 }
 
-async function taxonPhotos(name, flowers) {
+async function taxonPhotos(name, mode) {
   const found = await api(`/taxa?q=${encodeURIComponent(name)}&per_page=1`);
   const t = found.results?.[0];
   if (!t) return null;
@@ -58,10 +64,14 @@ async function taxonPhotos(name, flowers) {
   const used = new Set();
   const take = (list, n) => { const out = []; for (const x of list) { if (out.length >= n) break; if (x.url && !used.has(x.url)) { used.add(x.url); out.push(x); } } return out; };
   const whole = take(tp, 2);
-  const flower = flowers ? take(await obs("&term_id=12&term_value_id=13").catch(() => []), 2) : [];
+  const flowerObs = mode === "nf" ? [] : await obs("&term_id=12&term_value_id=13").catch(() => []);
+  const flower = take(flowerObs, mode === "fr" ? 1 : 2);
+  // 열매: Plant Phenology = Fruiting. 못 찾으면 꽃 사진 1장 더
+  const fruit = mode === "fr" ? take(await obs("&term_id=12&term_value_id=14").catch(() => []), 1) : [];
+  if (mode === "fr" && !fruit.length) flower.push(...take(flowerObs, 1));
   let leaf = take(await obs("&term_id=36&term_value_id=38").catch(() => []), 2);
   if (leaf.length < 2) leaf = leaf.concat(take(tp, 2 - leaf.length));
-  return { id: t.id, name: t.name, whole, flower, leaf };
+  return { id: t.id, name: t.name, whole, flower, fruit, leaf };
 }
 
 await fs.mkdir(OUT, { recursive: true });
@@ -74,7 +84,7 @@ const byName = new Map();
 for (const p of PLANTS) {
   const name = searchName(p);
   if (!name || /[가-힣]/.test(name)) continue;
-  const key = `${name}|${NO_FLOWER.has(p.id) ? "nf" : "f"}`;
+  const key = `${name}|${mode(p)}`;
   if (!byName.has(key)) byName.set(key, []);
   byName.get(key).push(p);
 }
@@ -84,12 +94,12 @@ for (const [key, plants] of byName) {
   try {
     let entry = index.taxa[key];
     if (!entry) {
-      const t = await taxonPhotos(name, fl === "f");
+      const t = await taxonPhotos(name, fl);
       if (!t) { index.taxa[key] = { none: true }; continue; }
-      const dir = path.join(OUT, String(t.id) + (fl === "nf" ? "-nf" : ""));
+      const dir = path.join(OUT, String(t.id) + (fl === "f" ? "" : "-" + fl));
       await fs.mkdir(dir, { recursive: true });
-      entry = { taxon: t.name, whole: [], flower: [], leaf: [], credits: [] };
-      for (const kind of ["whole", "flower", "leaf"]) {
+      entry = { taxon: t.name, whole: [], flower: [], fruit: [], leaf: [], credits: [] };
+      for (const kind of ["whole", "flower", "fruit", "leaf"]) {
         for (let i = 0; i < t[kind].length; i++) {
           const rel = `${path.basename(dir)}/${kind}${i + 1}.jpg`;
           await download(t[kind][i].url, path.join(OUT, rel));
@@ -101,7 +111,7 @@ for (const [key, plants] of byName) {
       await fs.writeFile(indexFile, JSON.stringify(index));
     }
     if (entry.none) continue;
-    for (const p of plants) index.plants[p.id] = { taxon: entry.taxon, whole: entry.whole, flower: entry.flower, leaf: entry.leaf };
+    for (const p of plants) index.plants[p.id] = { taxon: entry.taxon, whole: entry.whole, flower: entry.flower, fruit: entry.fruit || [], leaf: entry.leaf };
     done++;
     console.log(`✓ ${name} (${plants.length}종)`);
   } catch (e) {
