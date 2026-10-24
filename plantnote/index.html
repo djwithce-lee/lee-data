@@ -3286,11 +3286,32 @@ async function fetchAuto(p) {
 // GitHub에 올린 버전은 photos/ 폴더에 미리 받아둔 사진을 먼저 써요 (GitHub Actions가 채워요)
 let bundled = null;
 const bundledReady = fetch("photos/index.json").then(r => r.ok ? r.json() : null).then(j => { bundled = j; }).catch(() => {});
+// Claude 링크처럼 바깥 사진이 막힌 곳에서는 앱에 함께 넣은 작은 사진 묶음(sprites/)을 써요
+let spriteMap = null;
+const spriteReady = fetch("sprites/map.json").then(r => r.ok ? r.json() : null).then(j => { spriteMap = j; }).catch(() => {});
 async function autoPhotos(p) {
   await bundledReady;
   const b = bundled?.plants?.[p.id];
   if (b) { const fix = a => (a || []).map(f => "photos/" + f); return { whole: fix(b.whole), flower: fix(b.flower), fruit: fix(b.fruit), leaf: fix(b.leaf), taxon: b.taxon }; }
+  await spriteReady;
+  const s = spriteMap?.t?.[spriteMap.p[p.id]];
+  if (s) { const fix = a => a.map(c => "sprite:" + c); return { whole: fix(s[0]), flower: fix(s[1]), fruit: fix(s[2]), leaf: fix(s[3]) }; }
   return remotePhotos(p);
+}
+// 묶음 사진에서 한 칸(180px)을 잘라 data URL로 만들어요
+const SPRITE = 180, sheetCache = {}, tileCache = new Map();
+function loadSheet(name) {
+  return sheetCache[name] ||= new Promise((ok, bad) => { const im = new Image(); im.onload = () => ok(im); im.onerror = bad; im.src = `sprites/${name}.webp`; });
+}
+async function spriteTile(code) {
+  if (tileCache.has(code)) return tileCache.get(code);
+  const [name, i] = code.split("."), cols = spriteMap?.cols || 10;
+  const im = await loadSheet(name);
+  const c = document.createElement("canvas"); c.width = c.height = SPRITE;
+  c.getContext("2d").drawImage(im, (i % cols) * SPRITE, Math.floor(i / cols) * SPRITE, SPRITE, SPRITE, 0, 0, SPRITE, SPRITE);
+  const url = c.toDataURL("image/jpeg", 0.85);
+  tileCache.set(code, url);
+  return url;
 }
 function remotePhotos(p) {
   const c = autoCache[p.id];
@@ -3319,7 +3340,8 @@ async function loadAuto(img) {
   const r = await autoPhotos(p);
   const kind = img.dataset.kind || "whole";
   // 열매 사진을 못 찾으면 두 번째 꽃 사진으로 채워요
-  const url = r?.[kind]?.[+(img.dataset.idx || 0)] || (kind === "fruit" ? r?.flower?.[1] : null);
+  let url = r?.[kind]?.[+(img.dataset.idx || 0)] || (kind === "fruit" ? r?.flower?.[1] : null);
+  if (url?.startsWith("sprite:")) url = await spriteTile(url.slice(7)).catch(() => null);
   if (url) { img.src = url; img.hidden = false; img.closest(".auto-cell")?.classList.add("has"); }
   else {
     img.closest(".auto-cell")?.classList.add("none");
