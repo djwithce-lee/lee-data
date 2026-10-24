@@ -3870,6 +3870,7 @@ const bundledReady = fetch("photos/index.json").then(r => r.ok ? r.json() : null
 // Claude 링크처럼 바깥 사진이 막힌 곳에서는 앱에 함께 넣은 작은 사진 묶음(sprites/)을 써요
 let spriteMap = null;
 const spriteReady = fetch("sprites/map.json").then(r => r.ok ? r.json() : null).then(j => { spriteMap = j; }).catch(() => {});
+const isCultivar = p => /'[^']+'|\([A-Za-z][^)]*\)/.test(p.sci || "");
 async function autoPhotos(p) {
   await bundledReady;
   const b = bundled?.plants?.[p.id];
@@ -3877,6 +3878,8 @@ async function autoPhotos(p) {
   await spriteReady;
   const s = spriteMap?.t?.[spriteMap.p[p.id]];
   if (s) { const fix = a => a.map(c => "sprite:" + c); return { whole: fix(s[0]), flower: fix(s[1]), fruit: fix(s[2]), leaf: fix(s[3]) }; }
+  // 품종은 그 품종 사진만 써요. 같은 종 사진으로 대신하면 생김새가 다른 품종끼리 같은 사진이 돼요
+  if (isCultivar(p)) return { none: "cultivar" };
   return remotePhotos(p);
 }
 // 묶음 사진에서 한 칸(180px)을 잘라 data URL로 만들어요
@@ -3921,13 +3924,14 @@ async function loadAuto(img) {
   const r = await autoPhotos(p);
   const kind = img.dataset.kind || "whole";
   // 열매 사진을 못 찾으면 두 번째 꽃 사진으로 채워요
-  let url = r?.[kind]?.[+(img.dataset.idx || 0)] || (kind === "fruit" ? r?.flower?.[1] : null);
+  let url = r?.[kind]?.[+(img.dataset.idx || 0)] || (kind === "fruit" ? r?.flower?.[1] : null) || (img.classList.contains("thumb") ? r?.whole?.[0] : null);
   if (url?.startsWith("sprite:")) url = await spriteTile(url.slice(7)).catch(() => null);
   if (url) { img.src = url; img.hidden = false; img.closest(".auto-cell")?.classList.add("has"); }
   else {
     img.closest(".auto-cell")?.classList.add("none");
     const credit = document.getElementById("auto-credit");
-    if (credit && autoBlocked) credit.textContent = "기본 사진은 앱을 인터넷 주소에 올린 버전에서 보여요. 지금은 내가 올린 사진만 보여요.";
+    if (credit && r?.none === "cultivar") credit.textContent = "이 품종 사진은 아직 찾는 중이에요. 다른 품종이나 같은 종 사진은 생김새가 달라서 넣지 않았어요.";
+    else if (credit && autoBlocked) credit.textContent = "기본 사진은 앱을 인터넷 주소에 올린 버전에서 보여요. 지금은 내가 올린 사진만 보여요.";
   }
 }
 function fillAuto(root) {
@@ -3943,7 +3947,8 @@ function fillAuto(root) {
 }
 const autoImg = (id, kind = "whole", idx = 0, cls = "") => `<img ${cls ? `class="${cls}"` : ""} data-auto="${id}" data-kind="${kind}" data-idx="${idx}" hidden alt="" loading="lazy" referrerpolicy="no-referrer">`;
 // 목록 대표 사진: 내가 올린 사진이 먼저, 없으면 기본 사진
-const thumbFor = (p, own) => own ? `<img class="thumb" data-photo="${own}" hidden alt="">` : autoImg(p.id, "whole", 0, "thumb");
+// 관엽식물은 목록 대표 사진으로 잎 사진을 써요
+const thumbFor = (p, own) => own ? `<img class="thumb" data-photo="${own}" hidden alt="">` : autoImg(p.id, p.cat === "foliage" ? "leaf" : "whole", 0, "thumb");
 // 상세 화면의 기본 사진 6장 (꽃이 없는 식물은 4장)
 function autoGallery(p) {
   const kinds = PHOTO_SLOTS.filter(([k]) => k !== "flower" || hasFlower(p));
