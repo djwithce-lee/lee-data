@@ -97,6 +97,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .add-btn[disabled] { border-color: var(--line); color: var(--muted); cursor: default; }
 
 nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--surface); border-top: 1px solid var(--line); display: flex; justify-content: center; padding-bottom: env(safe-area-inset-bottom, 0px); padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+/* 목록을 내리면 나타나는 맨 위로 버튼 (탭 바 바로 위) */
+#to-top { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(76px + env(safe-area-inset-bottom, 0px)); z-index: 7; width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--leaf); box-shadow: 0 4px 14px rgba(0,0,0,.18); display: grid; place-items: center; opacity: 0; transform: translateY(10px); pointer-events: none; transition: opacity .2s, transform .2s; }
+#to-top.show { opacity: 1; transform: none; pointer-events: auto; }
+#to-top svg { width: 24px; height: 24px; }
 nav.tabs button { flex: 1; max-width: 190px; background: none; border: 0; padding: 12px 6px 14px; color: var(--muted); font-size: .85rem; display: flex; flex-direction: column; align-items: center; gap: 3px; }
 nav.tabs button[aria-current="page"] { color: var(--leaf); font-weight: 600; }
 nav.tabs svg { width: 22px; height: 22px; }
@@ -194,6 +198,7 @@ textarea { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line
   <main id="view"></main>
 </div>
 
+<button id="to-top" type="button" aria-label="맨 위로" title="맨 위로"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg></button>
 <nav class="tabs" aria-label="화면 이동">
   <button id="tab-home" data-tab="home" aria-current="page">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21c-4-3-7-6.5-7-10.5C5 6 8 3 12 3s7 3 7 7.5C19 14.5 16 18 12 21z"/><path d="M12 21V9"/></svg>내 식물</button>
@@ -4182,7 +4187,7 @@ function toast(msg, ms = 2600) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), ms);
 }
 
-function setTab(t) { tab = t; render(); window.scrollTo(0, 0); }
+function setTab(t) { tab = t; render(); window.scrollTo(0, 0); syncTop(); }
 function render() {
   document.querySelectorAll("nav.tabs button").forEach(b => b.dataset.tab === tab ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
   $("#title").innerHTML = { home: `내 식물 <span class="count">${state.mine.length}</span>`, find: "식물 찾기", wish: "위시리스트", settings: "알림 설정" }[tab];
@@ -4190,6 +4195,10 @@ function render() {
   ({ home: renderHome, find: renderFind, wish: renderWish, settings: renderSettings })[tab]();
 }
 document.querySelectorAll("nav.tabs button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
+// 맨 위로: 내 식물·식물 찾기에서 한 화면 넘게 내리면 보여요
+function syncTop() { document.getElementById("to-top")?.classList.toggle("show", (tab === "home" || tab === "find") && window.scrollY > window.innerHeight * 0.8); }
+window.addEventListener("scroll", syncTop, { passive: true });
+$("#to-top").onclick = () => window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
 
 try { if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {}); } catch (e) {}
 render();
