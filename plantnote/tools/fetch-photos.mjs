@@ -10,6 +10,8 @@ const OUT = path.join(ROOT, "photos");
 const API = process.env.INAT_BASE || "https://api.inaturalist.org/v1";
 const LICENSES = "cc0,cc-by,cc-by-nc,cc-by-sa,cc-by-nc-sa,cc-by-nd,cc-by-nc-nd";
 const DELAY = +(process.env.INAT_DELAY_MS ?? 1100);
+// 한 번에 너무 오래 돌면 GitHub이 작업을 끊어 받은 사진을 잃으니, 시간이 되면 멈추고 저장한 뒤 다음 실행에서 이어 받아요
+const DEADLINE = Date.now() + +(process.env.MAX_MINUTES ?? 100) * 60000;
 
 const html = await fs.readFile(path.join(ROOT, "index.html"), "utf8");
 const start = html.indexOf("const PLANTS = [");
@@ -88,11 +90,12 @@ for (const p of PLANTS) {
   if (!byName.has(key)) byName.set(key, []);
   byName.get(key).push(p);
 }
-let done = 0, failed = 0;
+let done = 0, failed = 0, more = false;
 for (const [key, plants] of byName) {
   const [name, fl] = key.split("|");
   try {
     let entry = index.taxa[key];
+    if (!entry && Date.now() > DEADLINE) { more = true; break; }
     if (!entry) {
       const t = await taxonPhotos(name, fl);
       if (!t) { index.taxa[key] = { none: true }; continue; }
@@ -120,4 +123,5 @@ for (const [key, plants] of byName) {
   }
 }
 await fs.writeFile(indexFile, JSON.stringify(index));
-console.log(`완료: ${done}개 학명, 실패 ${failed}개`);
+console.log(`완료: ${done}개 학명, 실패 ${failed}개${more ? ", 남은 것은 다음 실행에서 이어 받아요" : ""}`);
+if (more && process.env.GITHUB_OUTPUT) await fs.appendFile(process.env.GITHUB_OUTPUT, "more=true\n");

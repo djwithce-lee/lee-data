@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 # 한 번에 하나씩만 돌려서 사진 저장이 겹치지 않게 해요
 concurrency:
@@ -27,7 +28,10 @@ jobs:
         with:
           node-version: 20
       - name: iNaturalist에서 사진 받기
+        id: fetch
         run: node plantnote/tools/fetch-photos.mjs
+        env:
+          MAX_MINUTES: "100"
       - name: 받은 사진 저장
         run: |
           git config user.name "github-actions[bot]"
@@ -36,3 +40,8 @@ jobs:
           git diff --cached --quiet || git commit -m "식물노트 사진 업데이트"
           git pull --rebase origin main
           git push
+      - name: 남은 사진 이어 받기
+        if: steps.fetch.outputs.more == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run plantnote-photos.yml --ref main -R ${{ github.repository }}
