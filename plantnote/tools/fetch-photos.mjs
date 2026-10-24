@@ -1,7 +1,7 @@
 // 식물노트 사진 받기: index.html의 식물 목록을 읽어 iNaturalist에서 전체·꽃(열매 식물은 꽃+열매)·잎 사진을 받아
 // photos/<분류번호>/ 에 저장하고 photos/index.json 을 만들어요. GitHub Actions에서 실행해요.
 // 크리에이티브 커먼즈(CC) 라이선스 사진만 받아요.
-// 집에서 키우는 식물(iNaturalist '재배' 기록) 중 배경이 밝은 사진을 먼저 고르고, 없을 때만 야생 사진을 써요.
+// 아직 없는 사진만 받아요. 새로 받을 때는 집에서 키우는 식물(iNaturalist '재배' 기록) 중 배경이 밝은 사진을 먼저 고르고, 없을 때만 야생 사진을 써요.
 // 실행 전에 이 폴더에서 npm install 을 해 두면(jpeg-js) 배경 밝기를 재서 골라요.
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -181,7 +181,6 @@ let done = 0, failed = 0, more = false;
 for (const [key, { name, cv, fl, genus, plants }] of byName) {
   try {
     let entry = index.taxa[key];
-    if (entry && entry.v !== 2) entry = null;
     if (!entry && Date.now() > DEADLINE) { more = true; break; }
     if (!entry) {
       const t = await taxonPhotos(name, fl, cv, genus);
@@ -209,9 +208,9 @@ for (const [key, { name, cv, fl, genus, plants }] of byName) {
     console.log(`✗ ${name}: ${e.message}`);
   }
 }
-// 모두 받았으면 예전 방식으로 받은(이제 아무도 안 쓰는) 사진 폴더를 지워요
+// 모두 받았으면 이제 아무 식물도 안 쓰는 사진 폴더만 지워요. 이미 받은 사진은 그대로 둬요
 if (!more) {
-  for (const k of Object.keys(index.taxa)) if (index.taxa[k].v !== 2 || !byName.has(k)) delete index.taxa[k];
+  for (const k of Object.keys(index.taxa)) if (!byName.has(k)) delete index.taxa[k];
   const keep = new Set(Object.values(index.taxa).flatMap(e => ["whole", "flower", "fruit", "leaf"].flatMap(k => (e[k] || []).map(f => f.split("/")[0]))));
   for (const d of await fs.readdir(OUT, { withFileTypes: true })) if (d.isDirectory() && !keep.has(d.name)) await fs.rm(path.join(OUT, d.name), { recursive: true, force: true });
 }
