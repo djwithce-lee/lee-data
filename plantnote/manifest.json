@@ -1,0 +1,14 @@
+{
+  "name": "식물노트",
+  "short_name": "식물노트",
+  "description": "실내 식물의 빛, 물 양, 물주기 주기를 알려주고 물 줄 날에 알림을 보내는 앱",
+  "lang": "ko",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f6f2",
+  "theme_color": "#2f6b4f",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
