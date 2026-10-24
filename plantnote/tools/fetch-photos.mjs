@@ -15,7 +15,8 @@ const DELAY = +(process.env.INAT_DELAY_MS ?? 1100);
 // 한 번에 너무 오래 돌면 GitHub이 작업을 끊어 받은 사진을 잃으니, 시간이 되면 멈추고 저장한 뒤 다음 실행에서 이어 받아요
 const DEADLINE = Date.now() + +(process.env.MAX_MINUTES ?? 100) * 60000;
 
-const html = await fs.readFile(path.join(ROOT, "index.html"), "utf8");
+// Windows에서 줄바꿈이 CRLF로 바뀌어도 읽을 수 있게 맞춰요
+const html = (await fs.readFile(path.join(ROOT, "index.html"), "utf8")).replace(/\r\n/g, "\n");
 const start = html.indexOf("const PLANTS = [");
 const end = html.indexOf("];\nconst CAT_OF");
 const PLANTS = Function(`return ${html.slice(start + "const PLANTS = ".length, end)}]`)();
