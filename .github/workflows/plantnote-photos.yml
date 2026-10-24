@@ -1,11 +1,8 @@
 name: 식물노트 사진 받기
 
+# 사진은 lee의 컴퓨터에서 받아요. 이 작업은 필요할 때 손으로만 돌려요
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "plantnote/index.html"
-      - "plantnote/tools/fetch-photos.mjs"
 
 permissions:
   contents: write

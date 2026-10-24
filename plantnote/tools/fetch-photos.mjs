@@ -51,9 +51,17 @@ async function download(url, file) {
   await fs.writeFile(file, Buffer.from(await r.arrayBuffer()));
 }
 
+// 검색어와 학명(또는 그 이명)이 정확히 같은 식물 분류군만 써요. 비슷한 이름의 다른 종이나 동물·목(目) 단위가 잡히면 안 돼요
+async function findTaxon(name) {
+  const want = name.toLowerCase();
+  const found = await api(`/taxa?q=${encodeURIComponent(name)}&per_page=30&is_active=true`);
+  const plants = (found.results || []).filter(t => t.iconic_taxon_name === "Plantae" && t.rank_level <= 20);
+  return plants.find(t => t.name.toLowerCase() === want) || plants.find(t => (t.matched_term || "").toLowerCase() === want) || null;
+}
 async function taxonPhotos(name, mode) {
-  const found = await api(`/taxa?q=${encodeURIComponent(name)}&per_page=1`);
-  const t = found.results?.[0];
+  let t = await findTaxon(name), level = "species";
+  // 종을 못 찾으면 같은 속(屬) 사진이라도 써요
+  if (!t && name.includes(" ")) { t = await findTaxon(name.split(" ")[0]); level = "genus"; }
   if (!t) return null;
   const detail = await api(`/taxa/${t.id}`);
   const tp = (detail.results?.[0]?.taxon_photos || []).map(x => x.photo)
@@ -73,7 +81,7 @@ async function taxonPhotos(name, mode) {
   if (mode === "fr" && !fruit.length) flower.push(...take(flowerObs, 1));
   let leaf = take(await obs("&term_id=36&term_value_id=38").catch(() => []), 2);
   if (leaf.length < 2) leaf = leaf.concat(take(tp, 2 - leaf.length));
-  return { id: t.id, name: t.name, whole, flower, fruit, leaf };
+  return { id: t.id, name: t.name, level, whole, flower, fruit, leaf };
 }
 
 await fs.mkdir(OUT, { recursive: true });
@@ -101,7 +109,7 @@ for (const [key, plants] of byName) {
       if (!t) { index.taxa[key] = { none: true }; continue; }
       const dir = path.join(OUT, String(t.id) + (fl === "f" ? "" : "-" + fl));
       await fs.mkdir(dir, { recursive: true });
-      entry = { taxon: t.name, whole: [], flower: [], fruit: [], leaf: [], credits: [] };
+      entry = { taxon: t.name, level: t.level, whole: [], flower: [], fruit: [], leaf: [], credits: [] };
       for (const kind of ["whole", "flower", "fruit", "leaf"]) {
         for (let i = 0; i < t[kind].length; i++) {
           const rel = `${path.basename(dir)}/${kind}${i + 1}.jpg`;
@@ -114,7 +122,7 @@ for (const [key, plants] of byName) {
       await fs.writeFile(indexFile, JSON.stringify(index));
     }
     if (entry.none) continue;
-    for (const p of plants) index.plants[p.id] = { taxon: entry.taxon, whole: entry.whole, flower: entry.flower, fruit: entry.fruit || [], leaf: entry.leaf };
+    for (const p of plants) index.plants[p.id] = { taxon: entry.taxon, level: entry.level, whole: entry.whole, flower: entry.flower, fruit: entry.fruit || [], leaf: entry.leaf };
     done++;
     console.log(`✓ ${name} (${plants.length}종)`);
   } catch (e) {
