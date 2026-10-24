@@ -3251,6 +3251,8 @@ function renderResults() {
   const q = query.trim().toLowerCase();
   const list = PLANTS.filter(p => (!filter || p.light === filter) &&
     (!catFilter || p.cat === catFilter || (catFilter === "tree" && p.tree)) && matches(p, q));
+  // 검색어가 없을 때는 가나다순으로 보여 줘요
+  if (!q) list.sort((a, b) => a.name.localeCompare(b.name, "ko"));
   const owned = new Set(state.mine.map(m => m.plantId));
   const r = $("#results");
   const helper = q ? `<div class="lookup">
