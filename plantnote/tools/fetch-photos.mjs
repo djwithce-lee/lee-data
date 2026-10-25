@@ -31,20 +31,20 @@ const mode = p => !hasFlower(p) ? "nf" : hasFruit(p) ? "fr" : "f";
 // 앱과 같은 방식으로 학명에서 종 이름만 뽑아요
 function searchName(p) {
   let n = (p.sci || "").split("'")[0].replace(/×/g, " ").replace(/\([^)]*\)/g, "")
-    .replace(/\bspp?\.?/g, "").replace(/\b(var|subsp|f)\.\s*\S+/g, "").replace(/등$/, "").replace(/\s+/g, " ").trim();
+    .replace(/\bspp?\b\.?/g, "").replace(/\b(var|subsp|f)\.\s*\S+/g, "").replace(/등$/, "").replace(/\s+/g, " ").trim();
   return n.split(" ").slice(0, 3).join(" ");
 }
 
 // 품종 이름: 학명의 따옴표 안('Dakota') 또는 괄호 속 영어 품종군(Hybrid Tea)
 function cultivarOf(p) {
   const sci = p.sci || "";
-  const q = sci.match(/'([^']+)'/);
+  const q = sci.match(/'(.+)'/);
   if (q) return q[1].trim();
   const g = sci.match(/\(([A-Za-z][^)]*)\)/);
   return g ? g[1].trim() : "";
 }
 // 학명이 속 단위(Calathea spp., Hoya 등)인 식물만 속 사진을 써요
-const genusLevel = p => /\bspp?\.?|등$/.test(p.sci || "") || !/\s/.test(searchName(p));
+const genusLevel = p => /\bspp?\b\.?|등$/.test(p.sci || "") || !/\s/.test(searchName(p));
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function api(url) {
