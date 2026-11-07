@@ -184,7 +184,9 @@ textarea { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line
 .fert-row small { color: var(--muted); font-weight: 400; display: block; font-size: .72rem; }
 .fert-row.now { background: var(--leaf-soft); }
 .now-tag { display: inline-block; margin-top: 2px; font-size: .68rem; color: var(--leaf); }
-.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(84px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: .88rem; z-index: 30; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); width: max-content; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: .88rem; z-index: 30; display: flex; gap: 12px; align-items: center; max-width: calc(100vw - 32px); }
+.toast button { background: none; border: none; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; padding: 4px 2px; cursor: pointer; white-space: nowrap; }
+.banner-act { margin-left: auto; flex: none; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
 .setting { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; margin-bottom: 10px; }
 .setting p { margin: 4px 0 10px; color: var(--muted); font-size: .88rem; }
 @media (prefers-reduced-motion: no-preference) { .sheet { animation: up .22s ease-out; } @keyframes up { from { transform: translateY(24px); opacity: .6; } } }
@@ -3149,7 +3151,7 @@ function renderHome() {
     const names = [...new Set(tender.map(m => m.nick || BY_ID[m.plantId].name))];
     html += `<div class="banner cold" role="note"><span>❄️</span><span><b>${esc(names.slice(0, 3).join(", "))}${names.length > 3 ? ` 외 ${names.length - 3}개` : ""}</b>는 추위에 약해요. 밤에 창가는 10℃ 아래로 떨어질 수 있으니 안쪽으로 옮겨주세요.</span></div>`;
   }
-  if (due.length) html += `<div class="banner" role="status"><span>💧</span><span>오늘 물을 줘야 할 식물이 <b>${due.length}개</b> 있어요.</span></div>`;
+  if (due.length) html += `<div class="banner" role="status"><span>💧</span><span>오늘 물을 줘야 할 식물이 <b>${due.length}개</b> 있어요.</span>${due.length > 1 ? `<button class="banner-act" id="water-all">모두 물 줬어요</button>` : ""}</div>`;
   if (mode === "family" || mode === "genus" || mode === "species") {
     let last = null, out = "";
     for (const m of sorted) {
@@ -3175,6 +3177,7 @@ function renderHome() {
   view.querySelectorAll("[data-move]").forEach(b => b.onclick = () => movePlant(b.dataset.uid, +b.dataset.move));
   const hn = $("#hide-note"); if (hn) hn.onclick = () => { state.showExampleNote = false; save(); render(); };
   view.querySelectorAll("[data-water]").forEach(b => b.onclick = () => water(b.dataset.water));
+  const wa = $("#water-all"); if (wa) wa.onclick = () => waterAll(due.map(m => m.uid));
   view.querySelectorAll("[data-open]").forEach(b => b.onclick = () => openMine(b.dataset.open));
 }
 
@@ -3212,16 +3215,24 @@ function card(m, idx, total) {
   </article>`;
 }
 
+// 실수로 눌렀을 때 되돌릴 수 있게 전에 물 준 날을 기억해 둬요
+function waterAll(uids) {
+  const before = uids.map(u => { const m = state.mine.find(x => x.uid === u); return [m, m.last]; });
+  before.forEach(([m]) => { m.last = todayStr(); });
+  save(); render();
+  toast(`${uids.length}개 식물에 물을 줬어요.`, 5000, "되돌리기", () => { before.forEach(([m, last]) => { m.last = last; }); save(); render(); });
+}
 function water(uid) {
   const m = state.mine.find(x => x.uid === uid);
+  const prev = m.last;
   m.last = todayStr();
   save(); render();
-  toast(`${m.nick || BY_ID[m.plantId].name}에 물을 줬어요. 다음은 ${fmt(nextDate(m))}`);
+  toast(`${m.nick || BY_ID[m.plantId].name}에 물을 줬어요. 다음은 ${fmt(nextDate(m))}`, 5000, "되돌리기", () => { m.last = prev; save(); render(); });
 }
 
 function renderFind() {
   const view = $("#view");
-  view.innerHTML = `<input class="search" id="q" type="search" placeholder="식물 이름으로 검색 (예: 몬스테라, 블루베리, 바질)" enterkeyhint="search" value="${esc(query)}" autocomplete="off">
+  view.innerHTML = `<input class="search" id="q" type="search" placeholder="식물 이름으로 검색 (예: 몬스테라, ㅂㄹㅂㄹ)" enterkeyhint="search" value="${esc(query)}" autocomplete="off">
     <div class="filters" role="group" aria-label="식물 종류">
       ${CATS.map(([v,l]) => `<button data-c="${v}" aria-pressed="${catFilter===v}">${l}</button>`).join("")}
     </div>
@@ -3241,8 +3252,12 @@ function renderFind() {
 }
 
 // 띄어쓰기와 "나무" 유무에 상관없이 찾아요. 예: "벤자민 나무", "벤자민나무" → 벤자민고무나무
+const CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
+const chosung = s => s.replace(/[가-힣]/g, c => CHO[Math.floor((c.charCodeAt(0) - 0xAC00) / 588)]);
+const isChosung = q => /^[ㄱ-ㅎ]+$/.test(q);
 function matches(p, q) {
   if (!q) return true;
+  if (isChosung(q.replace(/\s/g, ""))) return [p.name, ...p.alias].some(n => chosung(n.replace(/\s/g, "")).includes(q.replace(/\s/g, "")));
   const names = [p.name, ...p.alias, p.sci].map(s => s.replace(/\s/g, "").toLowerCase());
   const has = t => names.some(n => n.includes(t));
   const full = q.replace(/\s/g, "");
@@ -3266,22 +3281,42 @@ function renderResults() {
       <p>${sample ? "AI가 이 식물의 빛, 물주기, 온도를 찾아드려요. 직접 입력해도 돼요." : "이름과 물주기 간격을 직접 입력해서 등록할 수 있어요."}</p></div>
       <div class="row">${sample ? `<button class="primary" id="ai-find">AI로 찾기</button>` : ""}<button class="ghost" id="manual-add">직접 입력</button></div>
     </div>` : "";
-  r.innerHTML = list.map(p => `<article class="card${owned.has(p.id) ? " added" : ""}">
+  const cardOf = p => `<article class="card${owned.has(p.id) ? " added" : ""}">
     <button class="open name" data-info="${p.id}">${thumbFor(p, myCover(p.id))}${p.name}<small>${p.source ? SOURCE[p.source] : CAT_NAME[p.cat]}${p.tree && p.cat !== "tree" ? " · 나무" : ""}</small></button>
     <div class="acts"><button class="wish-btn" data-wish="${p.id}" aria-pressed="${inWish(p.id)}" aria-label="위시리스트">${inWish(p.id) ? "♥" : "♡"}</button><button class="add-btn" data-add="${p.id}" ${owned.has(p.id) ? "disabled aria-disabled=\"true\"" : ""}>${owned.has(p.id) ? "추가됨" : "추가"}</button></div>
     <div class="meta"><span class="chip light">${meter(p.light, "sun")}${LIGHT[p.light]}</span><span class="chip water">${p.days}일마다 · ${AMOUNT[p.amount]}</span><span class="chip temp">최저 ${p.min}℃</span><span class="chip fert">영양제 · ${fertNow(p)}</span>${p.pet ? `<span class="chip">반려동물 주의</span>` : ""}</div>
     <div class="taxline">${taxLine(p)}</div>
-  </article>`).join("") + helper;
+  </article>`;
+  // 2,700개를 한꺼번에 그리면 핸드폰에서 몇 초씩 멈춰서, 60개씩 나눠 그리고 끝에 닿으면 더 붙여요
+  let shown = 0;
+  r.innerHTML = `<div class="more-sentinel" aria-hidden="true"></div>` + helper;
+  const sentinel = r.querySelector(".more-sentinel");
+  const more = () => {
+    const next = list.slice(shown, shown + RESULT_PAGE);
+    if (!next.length) return false;
+    sentinel.insertAdjacentHTML("beforebegin", next.map(cardOf).join(""));
+    shown += next.length;
+    fillPhotos(r);
+    return shown < list.length;
+  };
+  resultObserver?.disconnect();
+  if (more() && "IntersectionObserver" in window) {
+    resultObserver = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting) && !more()) resultObserver.disconnect(); }, { rootMargin: "800px 0px" });
+    resultObserver.observe(sentinel);
+  } else while (more());
   const af = $("#ai-find"); if (af) af.onclick = () => aiLookup(query.trim());
   const ma = $("#manual-add"); if (ma) ma.onclick = () => openEditor({ name: query.trim() }, "manual");
-  fillPhotos(r);
-  r.querySelectorAll("[data-info]").forEach(b => b.onclick = () => openInfo(b.dataset.info));
-  r.querySelectorAll("[data-add]").forEach(b => b.onclick = () => openAdd(b.dataset.add));
-  r.querySelectorAll("[data-wish]").forEach(b => b.onclick = () => {
-    const on = toggleWish(b.dataset.wish);
-    b.setAttribute("aria-pressed", on); b.textContent = on ? "♥" : "♡";
-  });
+  // 카드가 나중에 붙어도 눌리게 목록 전체에서 한 번만 받아요
+  r.onclick = e => {
+    const b = e.target.closest("[data-info],[data-add],[data-wish]");
+    if (!b) return;
+    if (b.dataset.info) openInfo(b.dataset.info);
+    else if (b.dataset.add) openAdd(b.dataset.add);
+    else { const on = toggleWish(b.dataset.wish); b.setAttribute("aria-pressed", on); b.textContent = on ? "♥" : "♡"; }
+  };
 }
+const RESULT_PAGE = 60;
+let resultObserver = null;
 
 // ── 위시리스트: 키우고 싶은 식물을 모아 두고, 키우게 되면 내 식물로 옮겨요 ──
 const inWish = id => state.wish.some(w => w.plantId === id);
@@ -3629,7 +3664,7 @@ async function aiLookup(name) {
  "care": "물주기와 관리 핵심을 해요체로 2문장"}`;
   try {
     const res = await sample.json(prompt, { signal: ctl.signal });
-    document.querySelector(".scrim")?.remove();
+    closeTopSheet();
     if (!res || res.found === false) {
       toast(`"${name}"에 대한 정보를 찾지 못했어요. 직접 입력해 주세요.`, 4000);
       openEditor({ name }, "manual");
@@ -3736,13 +3771,35 @@ function coldText(min) {
 }
 const isColdSeason = () => [11, 12, 1, 2, 3].includes(new Date().getMonth() + 1);
 
+// 안드로이드 뒤로 가기를 누르면 앱이 꺼지지 않고 열린 창만 닫혀요.
+// 창이 열려 있는 동안 방문 기록을 하나 넣어 두고, 마지막 창을 닫을 때 다시 빼요.
+let sheetGuard = false, ignorePop = false;
+function guardSheet() { if (!sheetGuard) { try { history.pushState({ sheet: 1 }, ""); sheetGuard = true; } catch (e) {} } }
+function sheetClosed() {
+  setTimeout(() => { if (sheetGuard && !document.querySelector(".scrim")) { sheetGuard = false; ignorePop = true; history.back(); } }, 0);
+}
+function closeTopSheet() {
+  const all = document.querySelectorAll(".scrim");
+  if (!all.length) return false;
+  all[all.length - 1].remove(); sheetClosed();
+  return true;
+}
+window.addEventListener("popstate", () => {
+  if (ignorePop) { ignorePop = false; return; }
+  sheetGuard = false;
+  const all = document.querySelectorAll(".scrim");
+  if (all.length) { all[all.length - 1].remove(); if (all.length > 1) guardSheet(); }
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && closeTopSheet()) e.preventDefault(); });
+
 function sheet(html, bind) {
   const s = document.createElement("div");
   s.className = "scrim";
   s.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">${html}</div>`;
-  s.onclick = e => { if (e.target === s) s.remove(); };
+  const close = () => { if (s.isConnected) { s.remove(); sheetClosed(); } };
+  s.onclick = e => { if (e.target === s) close(); };
   document.body.appendChild(s);
-  const close = () => s.remove();
+  guardSheet();
   s.querySelectorAll("[data-close]").forEach(b => b.onclick = close);
   bind && bind(s, close);
 }
@@ -4180,9 +4237,15 @@ function checkAlarm() {
 }
 
 let toastTimer;
-function toast(msg, ms = 2600) {
+function toast(msg, ms = 2600, actLabel, act) {
   document.querySelectorAll(".toast").forEach(t => t.remove());
-  const t = document.createElement("div"); t.className = "toast"; t.role = "status"; t.textContent = msg;
+  const t = document.createElement("div"); t.className = "toast"; t.role = "status";
+  const span = document.createElement("span"); span.textContent = msg; t.appendChild(span);
+  if (actLabel) {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = actLabel;
+    b.onclick = () => { t.remove(); act(); };
+    t.appendChild(b);
+  }
   document.body.appendChild(t);
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), ms);
 }
