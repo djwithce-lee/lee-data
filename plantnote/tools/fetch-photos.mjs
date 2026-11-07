@@ -115,7 +115,8 @@ async function cultivarPhotos(t, cv) {
     const ii = pg.imageinfo?.[0], md = ii?.extmetadata || {};
     const lic = strip(md.LicenseShortName?.value);
     if (!ii || !/jpeg|png/.test(ii.mime || "") || !/cc|public domain|pd/i.test(lic)) continue;
-    if (!norm(pg.title).includes(want)) continue;
+    // 품종 이름만 같은 엉뚱한 사진(사진가 이름 Momotaro, 빙하 사진 Glacier 등)을 막으려고 파일 이름에 속 이름도 있어야 해요
+    if (!norm(pg.title).includes(want) || !norm(pg.title).includes(norm(genus))) continue;
     out.push({ url: ii.thumburl || ii.url, probe: ii.thumburl, credit: `${strip(md.Artist?.value) || "Wikimedia Commons"}, ${lic}` });
   }
   return out;
