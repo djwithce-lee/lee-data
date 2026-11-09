@@ -209,7 +209,7 @@ textarea { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line
   <button id="tab-wish" data-tab="wish">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20s-7-4.4-7-10a4 4 0 017-2.6A4 4 0 0119 10c0 5.6-7 10-7 10z"/></svg>위시리스트</button>
   <button id="tab-settings" data-tab="settings">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 7H4c0-1 2-2 2-7z"/><path d="M10 20a2 2 0 004 0"/></svg>알림 설정</button>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 7H4c0-1 2-2 2-7z"/><path d="M10 20a2 2 0 004 0"/></svg>설정</button>
 </nav>
 
 <script>
@@ -4203,11 +4203,61 @@ function renderSettings() {
       ${perm === "default" ? `<button class="primary" id="s-perm">알림 허용하기</button>` : ""}
       <button class="ghost" id="s-test" style="margin-top:8px">테스트 알림 보내기</button></div>
     <div class="setting"><h2>물 주기 기준</h2><p>12~2월에는 식물이 천천히 자라서 겨울 간격으로 자동으로 늘려요. 식물마다 간격을 직접 바꿀 수도 있어요. 흙을 손가락으로 2~3cm 눌러보고 말랐을 때 주는 게 가장 정확해요.</p></div>
+    <div class="setting"><h2>백업</h2><p>내 식물, 물 준 날, 일지와 직접 찍은 사진은 이 기기에만 저장돼요. 핸드폰을 바꾸거나 브라우저 기록을 지우기 전에 백업 파일로 저장해 두세요.</p>
+      <div class="row"><button class="ghost" id="s-backup">백업 파일 저장</button><button class="ghost" id="s-restore">백업 불러오기</button></div>
+      <input type="file" id="s-file" accept=".json,application/json" hidden></div>
     <div class="setting"><h2>추위 경고</h2><p>11~3월에는 최저 온도가 10℃ 이상인, 추위에 약한 식물을 내 식물 화면 위쪽에서 알려드려요. 최저 온도는 화분에서 키울 때를 기준으로 한 대략적인 값이에요.</p></div>`;
   $("#s-time").onchange = e => { state.alarmTime = e.target.value || "09:00"; state.notified = {}; save(); toast(`매일 ${state.alarmTime}에 확인할게요`); };
   const pb = $("#s-perm");
   if (pb) pb.onclick = async () => { try { await Notification.requestPermission(); } catch (e) {} renderSettings(); };
   $("#s-test").onclick = () => notify("식물노트", "테스트 알림이에요. 물 줄 날이 되면 이렇게 알려드려요.");
+  $("#s-backup").onclick = saveBackup;
+  $("#s-restore").onclick = () => $("#s-file").click();
+  $("#s-file").onchange = e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) readBackup(f); };
+}
+
+// ── 백업: 기록과 직접 찍은 사진을 파일 하나(JSON)에 담아요 ──
+const photoKeysOf = st => [...new Set(st.mine.flatMap(m => [
+  ...Object.values(m.photos || {}).flat(),
+  ...(m.journal || []).flatMap(e => e.photos || []),
+]).filter(k => typeof k === "string" && k))];
+async function saveBackup() {
+  const photos = {};
+  for (const k of photoKeysOf(state)) { const u = await photoURL(k); if (u) photos[k] = u; }
+  const data = JSON.stringify({ app: "plantnote", v: 1, at: new Date().toISOString(), state, photos });
+  const filename = `plantnote-backup-${todayStr()}.json`;
+  // Claude 앱 안에서는 저장 확인 창을 거치고, 그 밖에서는 바로 내려받아요
+  const dl = await Promise.race([window.claude?.use?.("downloads") ?? null, new Promise(r => setTimeout(() => r(null), 1500))]).catch(() => null);
+  if (dl) {
+    try { await dl.save({ filename, data }); toast("백업 파일을 저장했어요."); }
+    catch (e) { toast(e?.code === "declined" ? "저장을 취소했어요." : "여기서는 파일을 저장할 수 없어요. 핸드폰 앱에서 저장해 주세요.", 4000); }
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([data], { type: "application/json" }));
+  a.download = filename; document.body.appendChild(a); a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(a.href); }, 10000);
+  toast(`식물 ${state.mine.length}개, 사진 ${Object.keys(photos).length}장을 백업했어요.`, 4000);
+}
+async function readBackup(file) {
+  let b;
+  try { b = JSON.parse(await file.text()); } catch (e) { b = null; }
+  if (!b || b.app !== "plantnote" || !Array.isArray(b.state?.mine)) { toast("식물노트 백업 파일이 아니에요. 백업 파일 저장으로 만든 .json 파일을 골라 주세요.", 4500); return; }
+  const n = b.state.mine.length, np = Object.keys(b.photos || {}).length;
+  sheet(`<h2>백업에서 되살릴까요?</h2><p class="sci">${esc((b.at || "").slice(0, 10))}에 만든 백업이에요. 식물 ${n}개, 사진 ${np}장이 들어 있어요.</p>
+    <p>지금 이 기기에 있는 내 식물 ${state.mine.length}개의 기록은 백업 내용으로 바뀌어요.</p>
+    <div class="row"><button class="ghost" data-close>취소</button><button class="primary" id="b-ok">되살리기</button></div>`, (s, close) => {
+    s.querySelector("#b-ok").onclick = async () => {
+      for (const [k, v] of Object.entries(b.photos || {})) if (typeof v === "string" && v.startsWith("data:image/")) { await idb.put(k, v); urlCache[k] = v; }
+      state = { ...state, ...b.state, notified: {} };
+      if (!Array.isArray(state.wish)) state.wish = [];
+      state.custom = Array.isArray(state.custom) ? state.custom.map(c => normalizePlant(c, c.source)) : [];
+      state.custom.forEach(registerCustom);
+      state.mine = state.mine.filter(m => m && BY_ID[m.plantId]);
+      save(); close(); setTab("home");
+      toast(`식물 ${state.mine.length}개를 되살렸어요.`, 4000);
+    };
+  });
 }
 
 // ── 알림 ──
@@ -4253,7 +4303,7 @@ function toast(msg, ms = 2600, actLabel, act) {
 function setTab(t) { tab = t; render(); window.scrollTo(0, 0); syncTop(); }
 function render() {
   document.querySelectorAll("nav.tabs button").forEach(b => b.dataset.tab === tab ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
-  $("#title").innerHTML = { home: `내 식물 <span class="count">${state.mine.length}</span>`, find: "식물 찾기", wish: "위시리스트", settings: "알림 설정" }[tab];
+  $("#title").innerHTML = { home: `내 식물 <span class="count">${state.mine.length}</span>`, find: "식물 찾기", wish: "위시리스트", settings: "설정" }[tab];
   $("#today").textContent = fmt(todayStr());
   ({ home: renderHome, find: renderFind, wish: renderWish, settings: renderSettings })[tab]();
 }
