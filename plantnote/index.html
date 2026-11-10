@@ -3255,9 +3255,25 @@ function renderFind() {
 const CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
 const chosung = s => s.replace(/[가-힣]/g, c => CHO[Math.floor((c.charCodeAt(0) - 0xAC00) / 588)]);
 const isChosung = q => /^[ㄱ-ㅎ]+$/.test(q);
+// 초성은 식물마다 한 번만 만들어 두어요 (글자를 칠 때마다 2,700개를 다시 바꾸면 느려요)
+const CHO_CACHE = new Map();
+const choOf = p => { let c = CHO_CACHE.get(p); if (!c) CHO_CACHE.set(p, c = [p.name, ...p.alias].map(n => chosung(n.replace(/\s/g, "")))); return c; };
+// 검색 결과 순서: 이름이 똑같은 것 → 이름이 검색어로 시작 → 이름에 들어 있음 → 다른 이름·학명에만 있음
+function rankOf(p, q) {
+  const full = q.replace(/\s/g, "");
+  const name = p.name.replace(/\s/g, "").toLowerCase();
+  if (isChosung(full)) { const c = choOf(p)[0]; return c === full ? 0 : c.startsWith(full) ? 1 : c.includes(full) ? 2 : 3; }
+  const alias = p.alias.map(a => a.replace(/\s/g, "").toLowerCase());
+  if (name === full || name === full + "나무") return 0;
+  if (alias.includes(full)) return 1;
+  if (p.name.toLowerCase().split(/\s+/).includes(full)) return 2;
+  if (name.startsWith(full)) return 3;
+  if (name.includes(full)) return 4;
+  return 5;
+}
 function matches(p, q) {
   if (!q) return true;
-  if (isChosung(q.replace(/\s/g, ""))) return [p.name, ...p.alias].some(n => chosung(n.replace(/\s/g, "")).includes(q.replace(/\s/g, "")));
+  if (isChosung(q.replace(/\s/g, ""))) return choOf(p).some(n => n.includes(q.replace(/\s/g, "")));
   const names = [p.name, ...p.alias, p.sci].map(s => s.replace(/\s/g, "").toLowerCase());
   const has = t => names.some(n => n.includes(t));
   const full = q.replace(/\s/g, "");
@@ -3268,12 +3284,16 @@ function matches(p, q) {
 }
 // 내가 키우는 식물에 올린 사진이 있으면 검색 결과에도 보여줘요
 const myCover = id => { for (const m of state.mine) if (m.plantId === id) { const k = coverPhoto(m); if (k) return k; } return null; };
+// 같은 식물이 두 번 들어간 것들이에요. 검색에는 하나만 보여 주고, 이미 키우거나 담아 둔 쪽은 그대로 보여요
+const DUP_HIDE = new Set("ms_peru t7_goe_warsz t7_goe_network t7_goe_freddie t7_goe_beauty t7_goe_dottie gp_triostar su_wasong t6_espostoa t6_ech_rain t6_phed_dragon t7_kal_pum t7_kal_mill t7_ph_flor_beauty t7_pep_put t7_pep_rosso t7_pep_inc t7_pep_col t7_pep_dola t6_erig t7_kal_hum t7_euph_fra t7_bas_lime".split(" "));
 function renderResults() {
   const q = query.trim().toLowerCase();
-  const list = PLANTS.filter(p => (!filter || p.light === filter) &&
+  const kept = new Set([...state.mine.map(m => m.plantId), ...state.wish.map(w => w.plantId)]);
+  const list = PLANTS.filter(p => (!DUP_HIDE.has(p.id) || kept.has(p.id)) && (!filter || p.light === filter) &&
     (!catFilter || p.cat === catFilter || (catFilter === "tree" && p.tree)) && matches(p, q));
   // 검색어가 없을 때는 가나다순으로 보여 줘요
   if (!q) list.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  else { const rk = new Map(list.map(p => [p, rankOf(p, q)])); list.sort((a, b) => rk.get(a) - rk.get(b)); }
   const owned = new Set(state.mine.map(m => m.plantId));
   const r = $("#results");
   const helper = q ? `<div class="lookup">
